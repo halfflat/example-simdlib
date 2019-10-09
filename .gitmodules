@@ -1,0 +1,6 @@
+[submodule "import/gtest"]
+	path = import/gtest
+	url = https://github.com/google/googletest
+[submodule "import/gbench"]
+	path = import/gbench
+	url = https://github.com/google/benchmark
