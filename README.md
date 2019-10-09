@@ -6,9 +6,9 @@
 mkdir build
 cd build
 ln -s ../Makefile
-make test
+make unit
 make examples
-make benches
+make benchmarks
 make clean
 make realclean
 ```

@@ -1,23 +1,17 @@
-.PHONY: clean all realclean examples benches
 .SECONDARY:
 
 top:=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 
-examples:=
-benches:=bench_sma
-
-all:: unit $(examples) $(benches)
-
-test-src:=unit.cc test_stub.cc
-
-all-src:=$(test-src) $(patsubst %, %.cc, $(examples)) $(patsubst %, %.cc, $(benches))
-all-obj:=$(patsubst %.cc, %.o, $(all-src))
-
 OPTFLAGS?=-O3 -march=native
-#OPTFLAGS?=-O0 -march=native
 CXXFLAGS+=$(OPTFLAGS) -MMD -MP -std=c++14 -g -pthread
 CPPFLAGS+=-I $(top)include
-RMDIR:=rmdir
+
+RMDIR:=rm -d -f
+
+.PHONY: clean cleanall realclean
+clean::
+celeanall::
+realclean:: cleanall
 
 # $(call build-cc, src-prefix, obj-prefix, source)
 define build-cc
@@ -26,7 +20,7 @@ $(2)$(patsubst %.cc,%.o,$(3)): $(1)$(3) | $(dir $(2))
 
 -include $(2)$(patsubst %.cc,%.d,$(3))
 clean:: ; $$(RM) $(2)$(patsubst %.cc,%.o,$(3))
-realclean:: ; $$(RM) $(2)$(patsubst %.cc,%.d,$(3))
+cleanall:: clean; $$(RM) $(2)$(patsubst %.cc,%.d,$(3))
 endef
 
 # $(call dump-cc-asm, src-prefix, obj-prefix, source)
@@ -36,6 +30,7 @@ $(2)$(patsubst %.cc,%.s,$(3)): $(1)$(3) | $(dir $(2))
 
 -include $(2)$(patsubst %.cc,%.d,$(3))
 clean:: ; $$(RM) $(2)$(patsubst %.cc,%.s,$(3))
+cleanall:: clean; $$(RM) $(2)$(patsubst %.cc,%.d,$(3))
 endef
 
 # $(call build-cclib, libname, src-prefix, obj-prefix, sources)
@@ -44,7 +39,7 @@ $(foreach src,$(4),$(eval $(call build-cc,$(2),$(3),$(src))))
 $(1): $(foreach src,$(4),$(3)$(patsubst %.cc,%.o,$(src)))
 	$$(AR) $$(ARFLAGS) $$@ $$^
 
-realclean:: ; $(RM) $(1)
+cleanall:: clean; $(RM) $(1)
 endef
 
 # $(call build-ccexe, libname, src-prefix, obj-prefix, sources)
@@ -53,15 +48,18 @@ $(foreach src,$(4),$(eval $(call build-cc,$(2),$(3),$(src))))
 $(1): $(foreach src,$(4),$(3)$(patsubst %.cc,%.o,$(src)))
 	$$(LINK.cc) $$^ $$(OUTPUT_OPTION) $$(LOADLIBES) $$(LDLIBS)
 
-realclean:: ; $(RM) $(1)
+cleanall:: ; $(RM) $(1)
 endef
 
 ### Google Test
 
 gtest-top:=$(top)import/gtest/googletest
 
+_gtest/: ; mkdir -p $@
+realclean:: cleanall; $(RMDIR) _gtest
+
 libgtest.a: CPPFLAGS+=-I $(gtest-top) -I $(gtest-top)/include
-$(eval $(call build-cclib,libgtest.a,$(gtest-top)/src/,,gtest-all.cc))
+$(eval $(call build-cclib,libgtest.a,$(gtest-top)/src/,_gtest/,gtest-all.cc))
 
 ### Google Benchmark
 
@@ -69,32 +67,40 @@ gbench-top:=$(top)import/gbench
 gbench-srcdir:=$(gbench-top)/src
 gbench-src:=$(notdir $(wildcard $(gbench-srcdir)/*.cc))
 
-libbench.a: CPPFLAGS+=-I $(gbench-top)/include
-gbench: ; mkdir gbench
-$(eval $(call build-cclib,libbench.a,$(gbench-srcdir)/,gbench/,$(gbench-src)))
+_gbench/: ; mkdir -p $@
+realclean:: cleanall; $(RMDIR) _gbench
+
+libgbench.a: CPPFLAGS+=-I $(gbench-top)/include
+$(eval $(call build-cclib,libgbench.a,$(gbench-srcdir)/,_gbench/,$(gbench-src)))
 
 ### Unit tests
 
 test-srcdir:=$(top)test
 test-src:=$(notdir $(wildcard $(test-srcdir)/*.cc))
 
+_unit/: ; mkdir -p $@
+realclean:: cleanall; $(RMDIR) _unit
+
 unit: CPPFLAGS+=-I $(gtest-top)/include
 unit: LDLIBS+=libgtest.a
 unit: libgtest.a
-$(eval $(call build-ccexe,unit,$(test-srcdir)/,,$(test-src)))
+$(eval $(call build-ccexe,unit,$(test-srcdir)/,_unit/,$(test-src)))
 
 ### Benchmarks
 
 bench-srcdir:=$(top)bench
 bench-src:=$(notdir $(wildcard $(bench-srcdir)/*.cc))
 
+_bench/: ; mkdir -p $@
+realclean:: cleanall; $(RMDIR) _bench
+
 .PHONY: benchmarks
 define build-bench
 benchmarks:: $(1)
 $(1): CPPFLAGS+=-I $(gbench-top)/include
-$(1): LDLIBS+=libbench.a
-$(1): libbench.a
-$(eval $(call build-ccexe,$(1),$(bench-srcdir)/,,$(1).cc))
+$(1): LDLIBS+=libgbench.a
+$(1): libgbench.a
+$(eval $(call build-ccexe,$(1),$(bench-srcdir)/,_bench/,$(1).cc))
 endef
 
 $(foreach src,$(notdir $(wildcard $(bench-srcdir)/*.cc)),\
@@ -105,12 +111,15 @@ $(eval $(call build-bench,$(basename $(src)))))
 example-srcdir:=$(top)example
 example-src:=$(notdir $(wildcard $(example-srcdir)/*.cc))
 
+_asmex/: ; mkdir -p $@
+realclean:: cleanall; $(RMDIR) _asmex
+
 .PHONY: examples
 define build-asm-example
-$(call dump-cc-asm,$(example-srcdir)/,,$(1).cc)
+$(call dump-cc-asm,$(example-srcdir)/,_asmex/,$(1).cc)
 examples:: $(1).asm
-$(1).asm: $(1).s; c++filt < $$< | grep -v '\.[a-z]\+' > $$@
-realclean:: ; $(RM) $(1).asm
+$(1).asm: _asmex/$(1).s; c++filt < $$< | grep -v '\.[a-z]\+' > $$@
+cleanall:: ; $(RM) $(1).asm
 endef
 
 $(foreach src,$(notdir $(wildcard $(example-srcdir)/*.cc)),\
