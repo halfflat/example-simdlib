@@ -1,0 +1,468 @@
+﻿#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <iterator>
+#include <type_traits>
+#include <immintrin.h>
+
+namespace tinysimd {
+
+template <typename I>
+struct simd_traits {
+    static constexpr unsigned width = 0;
+    using scalar_type = void;
+    using vector_type = void;
+};
+
+enum class constraint {
+    none, independent, contiguous, constant
+};
+
+template <typename I> struct tag {};
+
+template <typename I>
+struct fallback {
+    static constexpr unsigned width = simd_traits<I>::width;
+    using scalar_type = typename simd_traits<I>::scalar_type;
+    using vector_type = typename simd_traits<I>::vector_type;
+    using store = scalar_type[width];
+
+    static vector_type broadcast(scalar_type x) {
+        store a;
+        std::fill(std::begin(a), std::end(a), x);
+        return I::copy_from(a);
+    }
+
+    static vector_type add(const vector_type& u, const vector_type& v) {
+        store a, b, r;
+        I::copy_to(u, a);
+        I::copy_to(v, b);
+        for (unsigned i = 0; i<width; ++i) r[i] = a[i]+b[i];
+        return I::copy_from(r);
+    }
+
+    static vector_type mul(const vector_type& u, const vector_type& v) {
+        store a, b, r;
+        I::copy_to(u, a);
+        I::copy_to(v, b);
+        for (unsigned i = 0; i<width; ++i) r[i] = a[i]*b[i];
+        return I::copy_from(r);
+    }
+    
+    static vector_type fma(const vector_type& u, const vector_type& v, const vector_type& w) {
+        store a, b, c, r;
+        I::copy_to(u, a);
+        I::copy_to(v, b);
+        I::copy_to(w, c);
+        for (unsigned i = 0; i<width; ++i) r[i] = std::fma(a[i], b[i], c[i]);
+        return I::copy_from(r);
+    }
+
+    static scalar_type element(const vector_type& u, unsigned i) {
+        store a;
+        I::copy_to(u, a);
+        return a[i];
+    }
+
+    static void set_element(vector_type& u, unsigned i, const scalar_type& x) {
+        store a;
+        I::copy_to(u, a);
+        a[i] = x;
+        u = I::copy_from(a);
+    }
+
+
+    template <typename IndexI>
+    static vector_type gather(tag<IndexI>, const scalar_type* __restrict p,
+                              const typename simd_traits<IndexI>::vector_type& index) {
+        store a;
+        for (unsigned i = 0; i<width; ++i) a[i] = p[index[i]];
+        return I::copy_from(a);
+    }
+
+    template <typename IndexI>
+    static void scatter(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
+                              const typename simd_traits<IndexI>::vector_type& index) {
+        store a;
+        I::copy_to(u, a);
+        for (unsigned i = 0; i<width; ++i) p[index[i]] = a[i];
+    }
+
+    template <typename IndexI>
+    static vector_type gather(tag<IndexI>, const scalar_type* __restrict p,
+                              const typename simd_traits<IndexI>::vector_type& index, constraint c) {
+        switch (c) {
+        case constraint::none:
+        case constraint::independent:
+            return I::gather(tag<IndexI>{}, p, index);
+        case constraint::contiguous:
+            return I::copy_from(p+IndexI::element(index, 0));
+        case constraint::constant:
+            return I::broadcast(p[IndexI::element(index, 0)]);
+        }
+    }
+
+    template <typename IndexI>
+    static void scatter(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
+                              const typename simd_traits<IndexI>::vector_type& index, constraint c) {
+                            
+        switch (c) {
+            case constraint::none:
+            case constraint::independent:
+                I::scatter(tag<IndexI>{}, u, p, index);
+                return;
+            case constraint::contiguous:
+                I::copy_to(u, p+IndexI::element(index, 0));
+                return;
+            case constraint::constant:
+                p[IndexI::element(index, 0)] = I::element(u, width-1);
+                return;
+        }
+    }
+
+    template <typename IndexI>
+    static void scatter_reduce_add(tag<IndexI>, const vector_type& u, scalar_type* __restrict p, 
+        const typename simd_traits<IndexI>::vector_type& index, constraint c)
+    {
+#if 0
+        // WIP
+        switch (c) {
+        case constraint::none:
+            {
+                typename IndexI::store o;
+                IndexI::copy_to(index, o);
+                store a;
+                I::copy_to(u, a);
+                
+                scalar_type temp = 0;
+                for (unsigned i = 0; i<width-1; ++i) {
+                    temp += a[i];
+                    if (o[i] != o[i+1]) {
+                        p[o[i]] += temp;
+                        temp = 0;
+                    }
+                    
+                    temp += a[width-1];
+                    p[o[width-1]] += temp;
+                }
+                return;
+            }
+        case constraint::independent:
+            {
+                vector_type v = I::add(I::gather(tag<IndexI>{}, p, index), u);
+                I::scatter(tag<IndexI>{}, v, p, index);
+            }
+            return;
+        case index_constraint::contiguous:
+                {
+                    p += ImplIndex::element0(index);
+                    vector_type v = Impl::add(Impl::copy_from(p), s);
+                    Impl::copy_to(v, p);
+                }
+                break;
+            case index_constraint::constant:
+                p += ImplIndex::element0(index);
+                *p += Impl::reduce_add(s);
+                break;
+            }
+#endif
+    }
+                            
+    // ...
+};
+
+struct avx2_double4;
+template <> struct simd_traits<avx2_double4> {
+    static constexpr unsigned width = 4;
+    using scalar_type = double;
+    using vector_type = __m256d;
+};
+
+struct avx2_int4;
+template <> struct simd_traits<avx2_int4> {
+    static constexpr unsigned width = 4;
+    using scalar_type = int;
+    using vector_type = __m128i;
+};
+
+
+struct avx2_double4: fallback<avx2_double4> {
+    static void copy_to(const __m256d& v, double* p) {
+        _mm256_storeu_pd(p, v);
+    }
+    static __m256d copy_from(const double* p) {
+        return _mm256_loadu_pd(p);
+    }
+    static __m256d broadcast(double v) {
+        return _mm256_set1_pd(v);
+    }
+    static __m256d add(const __m256d& a, const __m256d& b) {
+        return _mm256_add_pd(a, b);
+    }
+    static __m256d mul(const __m256d& a, const __m256d& b) {
+        return _mm256_mul_pd(a, b);
+    }
+    static __m256d fma(const __m256d& u, const __m256d& v, const __m256d& w) {
+        return _mm256_fmadd_pd(u, v, w);
+    }
+
+    using fallback<avx2_double4>::gather;
+    static __m256d gather(tag<avx2_int4>, const double* p, const __m128i& index) {
+        return _mm256_i32gather_pd(p, index, 8);
+    }
+};
+
+
+struct avx2_int4: fallback<avx2_int4> {
+    static void copy_to(const __m128i& v, int* p) {
+        _mm_storeu_si128((__m128i*)p, v);
+    }
+    static __m128i copy_from(const int* p) {
+        return _mm_loadu_si128((const __m128i*)p);
+    }
+    static __m128i broadcast(int v) {
+        return _mm_set1_pd(v);
+    }
+    static __m128i add(const __m128i& a, const __m128i& b) {
+        return _mm_add_epi32(a, b);
+    }
+    static __m128i mul(const __m128i& a, const __m128i& b) {
+        return _mm_mul_pd(a, b);
+    }
+    static __m128i fma(const __m128i& u, const __m128i& v, const __m128i& w) {
+        return add(mul(u, v), w);
+    }
+};
+
+struct avx512_double8;
+template <> struct simd_traits<avx512_double8> {
+    static constexpr unsigned width = 8;
+    using scalar_type = double;
+    using vector_type = __m512d;
+};
+
+struct avx512_double8: fallback<avx512_double8> {
+    static void copy_to(const __m512d& v, double* p) {
+        _mm512_storeu_pd(p, v);
+    }
+    static __m512d copy_from(const double* p) {
+        return _mm512_loadu_pd(p);
+    }
+    static __m512d broadcast(double v) {
+        return _mm512_set1_pd(v);
+    }
+    static __m512d add(const __m512d& a, const __m512d& b) {
+        return _mm512_add_pd(a, b);
+    }
+    static __m512d mul(const __m512d& a, const __m512d& b) {
+        return _mm512_mul_pd(a, b);
+    }
+    static vector_type fma(const __m512d& u, const __m512d& v, const __m512d& w) {
+        return _mm512_fmadd_pd(u, v, w);
+    }
+};
+
+
+
+template <typename T, unsigned N>
+struct generic: fallback<generic<T, N>> {
+    using vector_type = std::array<T, N>;
+    static void copy_to(const vector_type& v, T* p) {
+        std::copy(std::begin(v), std::end(v), p);
+    }
+    static vector_type copy_from(const T* p) {
+        vector_type v;
+        std::copy(p, p+N, std::begin(v));
+        return v;
+    }
+};
+
+template <typename T, unsigned N>
+struct simd_traits<generic<T, N>> {
+    static constexpr unsigned width = N;
+    using scalar_type = T;
+    using vector_type = std::array<T, N>;
+};
+
+template <typename...> struct first_not_void_of { using type = void; };
+template <typename... tail> struct first_not_void_of<void, tail...> { using type = typename first_not_void_of<tail...>::type; };
+template <typename head, typename... tail> struct first_not_void_of<head, tail...> { using type = head; };
+
+namespace abi {
+    template <typename T, unsigned N> struct avx2 { using type = void; };
+    template <typename T, unsigned N> struct generic { using type = ::tinysimd::generic<T, N>; };
+
+    template <> struct avx2<int, 4> { using type = avx2_int4; };
+    template <> struct avx2<double, 4> { using type = avx2_double4; };
+
+    template <typename T, unsigned N>
+    struct default_abi {
+        using type = typename first_not_void_of<
+            typename avx2<T, N>::type,
+            typename generic<T, N>::type
+        >::type;
+    };
+}
+
+template <typename I> struct simd_wrap;
+
+template <typename I, typename T> struct indirect_expression {
+    using index_type = typename simd_traits<I>::vector_type;
+    T* p;
+    index_type index;
+    constraint c;
+
+    indirect_expression(T* p, const index_type& index, constraint c = constraint::none):
+        p(p), index(index), c(c) {}
+
+    template <typename J> indirect_expression& operator=(const simd_wrap<J>& a) {
+        return a.copy_to(*this), *this;
+    }
+
+    template <typename J> indirect_expression& operator+=(const simd_wrap<J>& a) {
+        return a.compound_assign_add(*this), *this;
+    }
+};
+
+template <typename I> struct simd_wrap {
+    static_assert(!std::is_void<I>::value, "unsupported SIMD ABI");
+
+private:
+    using vector_type = typename simd_traits<I>::vector_type;
+    vector_type value_;
+    static simd_wrap wrap(const vector_type& v) { simd_wrap s; return s.value_ = v, s; }
+    
+public:
+    using scalar_type = typename simd_traits<I>::scalar_type;
+    static constexpr unsigned width = simd_traits<I>::width;
+
+    simd_wrap() = default;
+    simd_wrap(const simd_wrap& other) = default;
+
+    simd_wrap(const scalar_type& x): value_(I::broadcast(x)) {}
+    simd_wrap(const scalar_type (&a)[width]): value_(I::copy_from(a)) {}
+    explicit simd_wrap(const scalar_type *p): value_(I::copy_from(p)) {}
+    
+    template <typename J>
+    simd_wrap(const indirect_expression<J, const scalar_type>& pi):
+        value_(I::gather(tag<J>{}, pi.p, pi.index, pi.c)) {}
+
+    template <typename J>
+    simd_wrap(const indirect_expression<J, scalar_type>& pi):
+        value_(I::gather(tag<J>{}, pi.p, pi.index, pi.c)) {}
+
+    simd_wrap& operator=(const simd_wrap& other) = default;
+    simd_wrap& operator=(const scalar_type& x) { value_ = I::broadcast(x); return *this; }
+
+    void copy_to(scalar_type* p) const { I::copy_to(value_, p); }
+    
+    template <typename J>
+    void copy_to(const indirect_expression<J, scalar_type>& pi) const { I::scatter(tag<J>{}, value_, pi.p, pi.index, pi.c); }
+
+    friend simd_wrap operator+(const simd_wrap& a, const simd_wrap& b) { return wrap(I::add(a.value_, b.value_)); }
+    friend simd_wrap operator*(const simd_wrap& a, const simd_wrap& b) { return wrap(I::mul(a.value_, b.value_)); }
+    friend simd_wrap fma(const simd_wrap& a, const simd_wrap& b, const simd_wrap& c) { return wrap(I::fma(a.value_, b.value_, c.value_)); }
+
+    simd_wrap& operator+=(const simd_wrap& a) { return value_ = I::add(value_, a.value_), *this; }
+    simd_wrap& operator*=(const simd_wrap& a) { return value_ = I::mul(value_, a.value_), *this; }
+
+    struct element_proxy {
+        vector_type* vptr;
+        int i;
+        element_proxy operator=(scalar_type x) && { I::set_element(*vptr, i, x); return *this; }
+        operator scalar_type() const { return I::element(*vptr, i); }
+    };
+
+    element_proxy operator[](int i) { return element_proxy{&value_, i}; }
+    scalar_type operator[](int i) const { return I::element(value_, i); }
+
+    template <typename J>
+    void compound_add_to(const indirect_expression<J,  scalar_type>& pi) {
+        I::scatter_reduce_add(tag<J>{}, value_, pi.p, pi.index, pi.c);
+    }
+    
+    template <typename PtrLike>
+    friend auto indirect(PtrLike p, const simd_wrap& index, constraint c = constraint::none) {
+        using V = std::remove_reference_t<decltype(*std::declval<PtrLike>())>;
+        return indirect_expression<I, V>(p, index.value_, c);
+    }
+};
+
+template <typename V, unsigned N, template <typename,unsigned> class abi = abi::default_abi>
+using simd = simd_wrap<typename abi<V, N>::type>;
+}
+
+#define N 32768
+
+using namespace tinysimd;
+
+#if 0
+using d4impl = avx2_double4;
+using d4 = simd_traits<d4impl>::vector_type;
+using i4impl = avx2_int4;
+using i4 = simd_traits<i4impl>::vector_type;
+constexpr unsigned width = 4;
+
+void mul_indexed(double* __restrict c, const int* index,
+    const double* a, const double* b)
+{
+    for (unsigned i = 0; i<N; i += width) {
+        i4 vi = i4impl::copy_from(index+i);
+        d4 va = d4impl::gather(tag<i4impl>{}, a, vi);
+        d4 vb = d4impl::gather(tag<i4impl>{}, b, vi);
+        d4impl::copy_to(d4impl::mul(va, vb), c+i);
+    }
+}
+#endif
+#if 0
+
+constexpr unsigned width = 4;
+using sd4 = simd<double, 4>;
+using si4 = simd<int, 4>;
+
+void mul_indexed2(double* __restrict c, const int* index,
+    const double* a, const double* b)
+{
+    for (unsigned i = 0; i<N; i += width) {
+        si4 vi(index+i);
+        sd4 va(indirect(a, vi)), vb(indirect(b, vi));
+        sd4 vc;
+        vc = 2*va*vb;
+
+        vc[2] = 3;
+        vc.copy_to(c+i);
+
+    }
+}
+
+#endif
+
+#if 0
+using double4 = tinysimd::simd<double, 4>;
+
+void sma(double* __restrict c, double k, const double* a, const double* b) {
+    for (unsigned i = 0; i<N; i += 4) {
+        double4 va(a+i);
+        double4 vb(b+i);
+        auto vc = k*va + vb;
+        vc.copy_to(c+i);
+    }
+}
+#endif
+
+using int4 = tinysimd::simd<int, 4>;
+using double4 = tinysimd::simd<double, 4>;
+
+void permuted_mul(double* __restrict c, const int* index,
+    const double* a, double* b)
+{
+    for (unsigned i = 0; i<N; i+=4) {
+        constraint vic = constraint::contiguous;
+        int4 vi(index+i);
+        double4 vc = double4(indirect(a, vi, vic))*double4(indirect(b, vi, vic));
+        //vc.copy_to(c+i);
+        vc.copy_to(indirect(c, vi, vic));
+    }
+}
