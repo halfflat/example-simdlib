@@ -49,7 +49,7 @@ template <typename I, typename T> struct indirect_expression {
     }
 
     template <typename J> indirect_expression& operator+=(const simd_wrap<J>& a) {
-        J::scatter_add(tag<I>{}, a.value_, index, c);
+        J::scatter_add(tag<I>{}, a.value_, p, index, c);
         return *this;
     }
 };

@@ -89,7 +89,53 @@ TYPED_TEST_P(tinysimd_indirect, scatter) {
     }
 }
 
-REGISTER_TYPED_TEST_SUITE_P(tinysimd_indirect, gather, scatter);
+TYPED_TEST_P(tinysimd_indirect, scatter_add) {
+    using namespace tinysimd;
+
+    using vvec = typename TypeParam::simd_value;
+    using ivec = typename TypeParam::simd_index;
+
+    using scalar = typename vvec::scalar_type;
+    using index = typename ivec::scalar_type;
+
+    constexpr unsigned width = vvec::width;
+    static_assert(width==ivec::width, "mismatched SIMD types");
+
+    constexpr unsigned data_width = width*2.5;
+    scalar data[data_width], out[data_width], check[data_width];
+    fill_zero(out);
+    generate_test_data(data);
+
+    scalar values[width];
+    generate_test_data(values);
+    vvec vval(values);
+
+    index indices[width];
+    constraint c = constraint::none;
+
+    // Run each constraint over a number of randomly-generated index sets:
+    for (auto c: {constraint::none, constraint::constant, constraint::contiguous,
+                  constraint::monotonic, constraint::independent}) {
+        using std::to_string;
+        using std::begin;
+        using std::end;
+
+        for (unsigned iter = 0; iter<10; ++iter) {
+            SCOPED_TRACE("constraint::"+to_string(c)+" iteration "+to_string(iter));
+            generate_constrained_indices(indices, data_width, c);
+
+            std::copy(begin(data), end(data), check);
+            for (unsigned i = 0; i<width; ++i) check[indices[i]] += values[i];
+
+            std::copy(begin(data), end(data), out);
+            indirect(out, ivec(indices), c) += vval;
+            EXPECT_PRED2(sequence_equal, check, out);
+        }
+    }
+}
+
+
+REGISTER_TYPED_TEST_SUITE_P(tinysimd_indirect, gather, scatter, scatter_add);
 
 template <typename SimdValue, typename SimdIndex>
 struct simd_pair {
