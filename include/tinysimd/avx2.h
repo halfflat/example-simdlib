@@ -78,7 +78,7 @@ struct avx2_int4: fallback<avx2_int4> {
         return _mm_add_epi32(a, b);
     }
     static __m128i mul(const __m128i& a, const __m128i& b) {
-        return _mm_mul_epi32(a, b);
+        return _mm_mullo_epi32(a, b);
     }
     static __m128i fma(const __m128i& u, const __m128i& v, const __m128i& w) {
         return add(mul(u, v), w);

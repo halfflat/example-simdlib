@@ -80,53 +80,60 @@ struct fallback {
     template <typename IndexI>
     static vector_type gather(tag<IndexI>, const scalar_type* __restrict p,
                               const typename simd_traits<IndexI>::vector_type& index) {
+        using index_store = typename simd_traits<IndexI>::scalar_type[width];
+
+        index_store j;
+        IndexI::copy_to(index, j);
+
         store a;
-        for (unsigned i = 0; i<width; ++i) a[i] = p[index[i]];
+        for (unsigned i = 0; i<width; ++i) a[i] = p[j[i]];
         return I::copy_from(a);
     }
 
     template <typename IndexI>
     static void scatter(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
                         const typename simd_traits<IndexI>::vector_type& index) {
+        using index_store = typename simd_traits<IndexI>::scalar_type[width];
+
+        index_store j;
+        IndexI::copy_to(index, j);
+
         store a;
         I::copy_to(u, a);
-        for (unsigned i = 0; i<width; ++i) p[index[i]] = a[i];
+
+        for (unsigned i = 0; i<width; ++i) p[j[i]] = a[i];
     }
 
     template <typename IndexI>
     static vector_type gather(tag<IndexI>, const scalar_type* __restrict p,
                               const typename simd_traits<IndexI>::vector_type& index, constraint c) {
         switch (c) {
-        case constraint::none:
-        case constraint::monotonic:
-        case constraint::independent:
-            return I::gather(tag<IndexI>{}, p, index);
-
         case constraint::contiguous:
             return I::copy_from(p+IndexI::element(index, 0));
 
         case constraint::constant:
             return I::broadcast(p[IndexI::element(index, 0)]);
+
+        default:
+            return I::gather(tag<IndexI>{}, p, index);
+
         }
     }
 
     template <typename IndexI>
     static void scatter(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
                               const typename simd_traits<IndexI>::vector_type& index, constraint c) {
-
         switch (c) {
-        case constraint::none:
-        case constraint::monotonic:
-        case constraint::independent:
-            I::scatter(tag<IndexI>{}, u, p, index);
-            return;
-
         case constraint::contiguous:
             I::copy_to(u, p+IndexI::element(index, 0));
             return;
 
         case constraint::constant:
             p[IndexI::element(index, 0)] = I::element(u, width-1);
+            return;
+
+        default:
+            I::scatter(tag<IndexI>{}, u, p, index);
             return;
         }
     }
@@ -138,18 +145,6 @@ struct fallback {
         using index_store = typename simd_traits<IndexI>::scalar_type[width];
 
         switch (c) {
-        case constraint::none:
-            {
-                store a;
-                I::copy_to(u, a);
-
-                index_store j;
-                IndexI::copy_to(index, j);
-
-                for (unsigned i = 0; i<width; ++i) p[j[i]] += a[i];
-            }
-            break;
-
         case constraint::monotonic:
             {
                 store a;
@@ -182,6 +177,18 @@ struct fallback {
 
         case constraint::constant:
             p[IndexI::element(index, 0)] += I::reduce_add(u);
+            break;
+
+        default:
+            {
+                store a;
+                I::copy_to(u, a);
+
+                index_store j;
+                IndexI::copy_to(index, j);
+
+                for (unsigned i = 0; i<width; ++i) p[j[i]] += a[i];
+            }
             break;
         }
     }
