@@ -3,12 +3,13 @@
 top:=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 
 OPTFLAGS?=-O3 -march=native
-CXXFLAGS+=$(OPTFLAGS) -MMD -MP -std=c++14 -g -pthread
+CXXFLAGS+=$(OPTFLAGS) -MMD -MP -std=c++14 -g -pthread -ffp-contract=off
 CPPFLAGS+=-I $(top)include
 
 RMDIR:=rm -d -f
 
-.PHONY: clean cleanall realclean
+.PHONY: all clean cleanall realclean
+all:: examples unit benches
 clean::
 celeanall::
 realclean:: cleanall
@@ -81,7 +82,7 @@ test-src:=$(notdir $(wildcard $(test-srcdir)/*.cc))
 _unit/: ; mkdir -p $@
 realclean:: cleanall; $(RMDIR) _unit
 
-unit: CPPFLAGS+=-I $(gtest-top)/include
+unit: CPPFLAGS+=-I $(gtest-top)/include -I $(top)/include
 unit: LDLIBS+=libgtest.a
 unit: libgtest.a
 $(eval $(call build-ccexe,unit,$(test-srcdir)/,_unit/,$(test-src)))
@@ -97,7 +98,7 @@ realclean:: cleanall; $(RMDIR) _bench
 .PHONY: benchmarks
 define build-bench
 benchmarks:: $(1)
-$(1): CPPFLAGS+=-I $(gbench-top)/include
+$(1): CPPFLAGS+=-I $(gbench-top)/include -I $(top)/include
 $(1): LDLIBS+=libgbench.a
 $(1): libgbench.a
 $(eval $(call build-ccexe,$(1),$(bench-srcdir)/,_bench/,$(1).cc))
@@ -116,6 +117,7 @@ realclean:: cleanall; $(RMDIR) _asmex
 
 .PHONY: examples
 define build-asm-example
+$(1).s: CPPFLAGS+=-I $(top)/include
 $(call dump-cc-asm,$(example-srcdir)/,_asmex/,$(1).cc)
 examples:: $(1).asm
 $(1).asm: _asmex/$(1).s; c++filt < $$< | grep -v '\.[a-z]\+' > $$@
