@@ -9,7 +9,7 @@ CPPFLAGS+=-I $(top)include
 RMDIR:=rm -d -f
 
 .PHONY: all clean cleanall realclean
-all:: examples unit benches
+all:: examples unit benchmarks
 clean::
 celeanall::
 realclean:: cleanall
@@ -71,7 +71,7 @@ gbench-src:=$(notdir $(wildcard $(gbench-srcdir)/*.cc))
 _gbench/: ; mkdir -p $@
 realclean:: cleanall; $(RMDIR) _gbench
 
-libgbench.a: CPPFLAGS+=-I $(gbench-top)/include
+libgbench.a: CPPFLAGS+=-I $(gbench-top)/include -DNDEBUG
 $(eval $(call build-cclib,libgbench.a,$(gbench-srcdir)/,_gbench/,$(gbench-src)))
 
 ### Unit tests
@@ -82,7 +82,7 @@ test-src:=$(notdir $(wildcard $(test-srcdir)/*.cc))
 _unit/: ; mkdir -p $@
 realclean:: cleanall; $(RMDIR) _unit
 
-unit: CPPFLAGS+=-I $(gtest-top)/include -I $(top)/include
+unit: CPPFLAGS+=-I $(gtest-top)/include -I $(top)/include -DNDEBUG
 unit: LDLIBS+=libgtest.a
 unit: libgtest.a
 $(eval $(call build-ccexe,unit,$(test-srcdir)/,_unit/,$(test-src)))

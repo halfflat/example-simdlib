@@ -117,6 +117,10 @@ public:
         return wrap(I::fma(a.value_, b.value_, c.value_));
     }
 
+    friend scalar_type reduce(const simd_wrap& a) {
+        return I::reduce_add(a.value_);
+    }
+
     simd_wrap& operator+=(const simd_wrap& a) {
         value_ = I::add(value_, a.value_);
         return *this;

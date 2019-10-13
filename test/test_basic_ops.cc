@@ -69,11 +69,13 @@ TYPED_TEST_P(tinysimd_basic, arithmetic) {
     vc.copy_to(out);
     EXPECT_PRED2(sequence_equal, check, out);
 
-    EXPECT_PRED2(sequence_equal, check, out);
     for (unsigned i = 0; i<width; ++i) check[i] = std::fma(in1[i], in2[i], in3[i]);
     fill_zero(out);
     fma(v1, v2, v3).copy_to(out);
     EXPECT_PRED2(sequence_equal, check, out);
+
+    scalar hsum = std::accumulate(in1, in1+width, scalar{0});
+    EXPECT_EQ(hsum, reduce(v1));
 }
 
 

@@ -145,27 +145,6 @@ struct fallback {
         using index_store = typename simd_traits<IndexI>::scalar_type[width];
 
         switch (c) {
-        case constraint::monotonic:
-            {
-                store a;
-                I::copy_to(u, a);
-
-                index_store j;
-                IndexI::copy_to(index, j);
-
-                scalar_type sum = 0;
-                for (unsigned i = 0; i<width-1; ++i) {
-                    sum += a[i];
-                    if (j[i]!=j[i+1]) {
-                        p[j[i]] += sum;
-                        sum = 0;
-                    }
-                }
-                sum += a[width-1];
-                p[j[width-1]] += sum;
-            }
-            break;
-
         case constraint::independent:
             I::scatter(tag<IndexI>{}, I::add(u, I::gather(tag<IndexI>{}, p, index, c)), p, index, c);
             break;
