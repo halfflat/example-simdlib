@@ -3,7 +3,10 @@
 #include <gtest/gtest.h>
 #include <tinysimd/simd.h>
 
-#include "helpers.h"
+#include "unit_common.h"
+
+using helpers::sequence_equal;
+using helpers::fill_zero;
 
 template <typename X> struct tinysimd_indirect: public ::testing::Test {};
 TYPED_TEST_SUITE_P(tinysimd_indirect);

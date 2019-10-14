@@ -8,6 +8,7 @@
 #include <string>
 
 #include <tinysimd/simd.h>
+#include "helpers.h"
 
 static std::minstd_rand R;
 
@@ -60,28 +61,7 @@ void generate_constrained_indices(Container& data, unsigned upto, tinysimd::cons
         return;
 
     case tinysimd::constraint::independent:
-        {
-            // Simple reservoir sampling.
-
-            unsigned n = std::distance(begin(data), end(data));
-            if (n>=upto) throw std::out_of_range("upto too small");
-
-            std::vector<scalar> pool(n);
-
-            for (unsigned i = 0; i<n; ++i) {
-                pool[i] = i;
-            }
-
-            std::uniform_real_distribution<float> U;
-            std::uniform_int_distribution<unsigned> S(0u, n-1);
-
-            const float p = (float)n/upto;
-            for (unsigned i = n; i<upto; ++i) {
-                if (U(R)>p) pool[S(R)] = i;
-            }
-
-            std::copy(begin(pool), end(pool), begin(data));
-        }
+        helpers::reservoir_sample_upto(R, data, upto);
         return;
 
     case tinysimd::constraint::none:
@@ -100,20 +80,4 @@ void generate_constrained_indices(Container& data, unsigned upto, tinysimd::cons
         return;
     }
 }
-
-template <typename Container>
-void fill_zero(Container& c) {
-    using std::begin;
-    using std::end;
-    using scalar = std::decay_t<decltype(*begin(c))>;
-
-    std::fill(begin(c), end(c), scalar(0));
-}
-
-static auto sequence_equal = [](const auto& s1, const auto& s2) {
-    using std::begin;
-    using std::end;
-
-    return std::equal(begin(s1), end(s1), begin(s2), end(s2));
-};
 

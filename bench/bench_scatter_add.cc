@@ -6,41 +6,55 @@
 
 #include <benchmark/benchmark.h>
 #include <tinysimd/simd.h>
+#include "helpers.h"
 
-#define N 32768
+// Benchmark: scatter-add of values computed from a small kernel.
+//     data[index[i]] += kernel(a[i]).
+//
+// Two scenarios:
+// 1. 'dense': 10x indices as data values; indices monotonically increasing.
+// 2. 'sparse': 10x data values as indices: indices monotonically increasing and distinct.
+constexpr float dense_ratio = 10.f;
+constexpr float sparse_ratio = 0.1f;
 
 using namespace tinysimd;
 
+
+// Polynomial evaluation for scalars or simd values.
+template <typename V>
+V kernel(V x) {
+    return 5+x*(1+x*(2+x*3));
+}
+
 [[gnu::noinline]]
-void sq_scatter_add(double* __restrict out, const double* a, const int* index) {
-    for (unsigned i = 0; i<N; ++i) {
-        out[index[i]] += a[i]*a[i];
+void scatter_add(double* __restrict out, unsigned na, const double* a, const int* index) {
+    for (unsigned i = 0; i<na; ++i) {
+        out[index[i]] += kernel(a[i]);
     }
 }
 
 template <unsigned width>
 [[gnu::noinline]]
-void sq_scatter_add_simd(double* __restrict out, const double* a, const int* index, constraint c = constraint::none) {
+void scatter_add_simd(double* __restrict out, unsigned na, const double* a, const int* index, constraint c = constraint::none) {
     using vdouble = simd<double, width>;
     using vint = simd<int, width>;
 
-    for (unsigned i = 0; i<N; i += width) {
+    for (unsigned i = 0; i<na; i += width) {
         vdouble va(a+i);
         vint vindex(index+i);
 
-        indirect(out, vindex, c) += va*va;
+        indirect(out, vindex, c) += kernel(va);
     }
 }
 
 template <unsigned width>
 [[gnu::noinline]]
-void sq_scatter_add_simd_subset(double* __restrict out, const double* a,
-                                unsigned subset_size,
+void scatter_add_simd_subset(double* __restrict out, unsigned na, const double* a,
                                 const int* offset, const int* index, constraint c) {
     using vdouble = simd<double, width>;
     using vint = simd<int, width>;
 
-    for (unsigned i = 0; i<subset_size; ++i) {
+    for (unsigned i = 0; i<na; ++i) {
         vdouble va(a+offset[i]);
         vint vindex(index+offset[i]);
 
@@ -48,89 +62,106 @@ void sq_scatter_add_simd_subset(double* __restrict out, const double* a,
     }
 }
 
-std::unique_ptr<double[]> random_array(unsigned n) {
-    std::minstd_rand R;
+std::vector<double> random_array(unsigned n) {
+    std::minstd_rand R; // Same sequence each call.
     std::uniform_real_distribution<double> U;
 
-    std::unique_ptr<double[]> p(new double[n]);
-    std::generate(p.get(), p.get()+n, [&] { return U(R); });
-    return p;
+    std::vector<double> v(n);
+    std::generate(v.begin(), v.end(), [&] { return U(R); });
+    return v;
 }
 
-std::unique_ptr<int[]> random_monotonic_index(unsigned n, unsigned upto) {
-    std::minstd_rand R;
-    std::uniform_int_distribution<int> U(0, upto-1);
+std::vector<int> random_independent_index(unsigned n, unsigned upto) {
+    std::minstd_rand R; // Same sequence each call.
 
-    std::unique_ptr<int[]> p(new int[n]);
-    std::generate(p.get(), p.get()+n, [&] { return U(R); });
-    std::sort(p.get(), p.get()+n);
-    return p;
+    std::vector<int> indices(n);
+    helpers::reservoir_sample_upto(R, indices, upto);
+    return indices;
 }
 
-struct test_data {
-    std::unique_ptr<double[]> out;
-    std::unique_ptr<double[]> a;
-    std::unique_ptr<int[]> index;
+std::vector<int> random_monotonic_index(unsigned n, unsigned upto) {
+    std::minstd_rand R; // Same sequence each call.
+    std::uniform_int_distribution<int> U(0,upto-1);
+
+    std::vector<int> indices(n);
+    std::generate(indices.begin(), indices.end(), [&] { return U(R); });
+    std::sort(indices.begin(), indices.end());
+    return indices;
+}
+
+struct test_dataset {
+    std::vector<double> out;
+    std::vector<double> a;
+    std::vector<int> index;
 };
 
-test_data generate_test_data(float density) {
-    unsigned data_size = N/density;
-    return {random_array(data_size), random_array(N), random_monotonic_index(N, data_size)};
+template <unsigned width>
+test_dataset generate_test_data(float density, bool indep) {
+    unsigned index_size = 8192;
+    unsigned data_size = index_size/density;
+    data_size = width*(1+(data_size-1)/width);
+
+    test_dataset dset;
+    dset.out = random_array(data_size);
+    dset.a = random_array(index_size);
+    dset.index = indep? random_independent_index(index_size, data_size): random_monotonic_index(index_size, data_size);
+    return dset;
 }
 
-void bench_sq_scatter_add(benchmark::State& state) {
-    test_data D = generate_test_data(state.range(0)/100.f);
+void dense_scatter_add(benchmark::State& state) {
+    test_dataset D = generate_test_data<4>(dense_ratio, false);
 
     for (auto _: state) {
-        sq_scatter_add(D.out.get(), D.a.get(), D.index.get());
+        scatter_add(D.out.data(), D.a.size(), D.a.data(), D.index.data());
     }
 }
 
-void bench_sq_scatter_add_simd(benchmark::State& state) {
-    test_data D = generate_test_data(state.range(0)/100.f);
+void dense_scatter_add_simd(benchmark::State& state) {
+    test_dataset D = generate_test_data<4>(dense_ratio, false);
 
     for (auto _: state) {
-        sq_scatter_add_simd<4>(D.out.get(), D.a.get(), D.index.get());
+        scatter_add_simd<4>(D.out.data(), D.a.size(), D.a.data(), D.index.data(), constraint::monotonic);
     }
 }
 
-void bench_sq_scatter_add_preconstrain(benchmark::State& state) {
+void dense_scatter_add_preconstrain(benchmark::State& state) {
     constexpr unsigned width = 4;
-
-    test_data D = generate_test_data(state.range(0)/100.f);
-    std::unique_ptr<constraint[]> pre(new constraint[N/width]);
+    test_dataset D = generate_test_data<4>(dense_ratio, false);
 
     std::vector<int> constant_offsets;
-    std::vector<int> monotonic_offsets;
-    std::vector<int> independent_offsets;
+    std::vector<int> monotone_offsets;
 
-    const int* indices = D.index.get();
-    for (unsigned i = 0; i<N; i+=width) {
-        if (indices[i]==indices[i+width-1]) constant_offsets.push_back(i);
-        else {
-            bool indep = true;
-            for (unsigned j = 0; j<width-1; ++j) indep &= indices[i+j]!=indices[i+j+1];
-            if (indep) independent_offsets.push_back(i);
-            else monotonic_offsets.push_back(i);
-        }
+    for (unsigned i = 0; i<D.index.size(); i+=width) {
+        if (D.index[i]==D.index[i+width-1]) constant_offsets.push_back(i);
+        else monotone_offsets.push_back(i);
     }
 
     for (auto _: state) {
-        sq_scatter_add_simd_subset<width>(D.out.get(), D.a.get(), constant_offsets.size(),
-            constant_offsets.data(), D.index.get(), constraint::constant);
-        sq_scatter_add_simd_subset<width>(D.out.get(), D.a.get(), independent_offsets.size(),
-            independent_offsets.data(), D.index.get(), constraint::independent);
-        sq_scatter_add_simd_subset<width>(D.out.get(), D.a.get(), monotonic_offsets.size(),
-            monotonic_offsets.data(), D.index.get(), constraint::monotonic);
+        scatter_add_simd_subset<width>(D.out.data(), constant_offsets.size(), D.a.data(), constant_offsets.data(), D.index.data(), constraint::constant);
+        scatter_add_simd_subset<width>(D.out.data(), monotone_offsets.size(), D.a.data(), monotone_offsets.data(), D.index.data(), constraint::monotonic);
     }
 }
 
-constexpr int sparse = 10;
-constexpr int moderate = 100;
-constexpr int dense = 1000;
+void sparse_scatter_add(benchmark::State& state) {
+    test_dataset D = generate_test_data<4>(sparse_ratio, true);
 
-BENCHMARK(bench_sq_scatter_add)->Arg(sparse)->Arg(moderate)->Arg(dense);
-BENCHMARK(bench_sq_scatter_add_simd)->Arg(sparse)->Arg(moderate)->Arg(dense);
-BENCHMARK(bench_sq_scatter_add_preconstrain)->Arg(sparse)->Arg(moderate)->Arg(dense);
+    for (auto _: state) {
+        scatter_add(D.out.data(), D.a.size(), D.a.data(), D.index.data());
+    }
+}
+
+void sparse_scatter_add_simd(benchmark::State& state) {
+    test_dataset D = generate_test_data<4>(sparse_ratio, true);
+
+    for (auto _: state) {
+        scatter_add_simd<4>(D.out.data(), D.a.size(), D.a.data(), D.index.data(), constraint::monotonic);
+    }
+}
+
+
+BENCHMARK(dense_scatter_add);
+BENCHMARK(dense_scatter_add_simd);
+BENCHMARK(dense_scatter_add_preconstrain);
+BENCHMARK(sparse_scatter_add);
+BENCHMARK(sparse_scatter_add_simd);
 BENCHMARK_MAIN();
-
