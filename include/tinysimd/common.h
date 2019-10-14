@@ -33,7 +33,7 @@ struct fallback {
         return I::copy_from(a);
     }
 
-    static vector_type add(const vector_type& u, const vector_type& v) {
+    static vector_type add(vector_type u, vector_type v) {
         store a, b, r;
         I::copy_to(u, a);
         I::copy_to(v, b);
@@ -41,7 +41,7 @@ struct fallback {
         return I::copy_from(r);
     }
 
-    static vector_type mul(const vector_type& u, const vector_type& v) {
+    static vector_type mul(vector_type u, vector_type v) {
         store a, b, r;
         I::copy_to(u, a);
         I::copy_to(v, b);
@@ -49,7 +49,7 @@ struct fallback {
         return I::copy_from(r);
     }
 
-    static vector_type fma(const vector_type& u, const vector_type& v, const vector_type& w) {
+    static vector_type fma(vector_type u, vector_type v, vector_type w) {
         store a, b, c, r;
         I::copy_to(u, a);
         I::copy_to(v, b);
@@ -58,7 +58,7 @@ struct fallback {
         return I::copy_from(r);
     }
 
-    static scalar_type element(const vector_type& u, unsigned i) {
+    static scalar_type element(vector_type u, unsigned i) {
         store a;
         I::copy_to(u, a);
         return a[i];
@@ -71,7 +71,7 @@ struct fallback {
         u = I::copy_from(a);
     }
 
-    static scalar_type reduce_add(const vector_type& u) {
+    static scalar_type reduce_add(vector_type u) {
         store a;
         I::copy_to(u, a);
         return std::accumulate(std::begin(a), std::end(a), scalar_type{0});
@@ -91,7 +91,7 @@ struct fallback {
     }
 
     template <typename IndexI>
-    static void scatter(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
+    static void scatter(tag<IndexI>, vector_type u, scalar_type* __restrict p,
                         const typename simd_traits<IndexI>::vector_type& index) {
         using index_store = typename simd_traits<IndexI>::scalar_type[width];
 
@@ -121,7 +121,7 @@ struct fallback {
     }
 
     template <typename IndexI>
-    static void scatter(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
+    static void scatter(tag<IndexI>, vector_type u, scalar_type* __restrict p,
                               const typename simd_traits<IndexI>::vector_type& index, constraint c) {
         switch (c) {
         case constraint::contiguous:
@@ -139,7 +139,7 @@ struct fallback {
     }
 
     template <typename IndexI>
-    static void scatter_add(tag<IndexI>, const vector_type& u, scalar_type* __restrict p,
+    static void scatter_add(tag<IndexI>, vector_type u, scalar_type* __restrict p,
                             const typename simd_traits<IndexI>::vector_type& index, constraint c) {
 
         using index_store = typename simd_traits<IndexI>::scalar_type[width];

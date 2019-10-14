@@ -28,7 +28,7 @@ template <typename T, unsigned N>
 struct generic: fallback<generic<T, N>> {
     using array = std::array<T, N>;
 
-    static void copy_to(const array& v, T* p) {
+    static void copy_to(array v, T* p) {
         std::copy(std::begin(v), std::end(v), p);
     }
     static array copy_from(const T* p) {
@@ -36,7 +36,7 @@ struct generic: fallback<generic<T, N>> {
         std::copy(p, p+N, v.data());
         return v;
     }
-    static T element(const array& v, unsigned i) {
+    static T element(array v, unsigned i) {
         return v[i];
     }
     static void set_element(array& v, unsigned i, const T& x) {
