@@ -1,3 +1,7 @@
+#include <iterator>
+#include <algorithm>
+#include <numeric>
+
 #include <gtest/gtest.h>
 #include <tinysimd/simd.h>
 
@@ -81,8 +85,42 @@ TYPED_TEST_P(tinysimd_basic, arithmetic) {
     EXPECT_EQ(hsum, reduce(v1));
 }
 
+TYPED_TEST_P(tinysimd_basic, element) {
+    using namespace tinysimd;
 
-REGISTER_TYPED_TEST_SUITE_P(tinysimd_basic, copy_and_assign, arithmetic);
+    using std::begin;
+    using std::end;
+
+    using vec = TypeParam;
+    using scalar = typename vec::scalar_type;
+    constexpr unsigned width = vec::width;
+
+    scalar in[width], out[width], check[width];
+    generate_test_data(in);
+
+    for (unsigned i = 0; i<width; ++i) {
+        EXPECT_EQ(in[i], vec(in)[i]);
+    }
+
+    for (unsigned i = 0; i<width; ++i) {
+        std::copy(begin(in), end(in), begin(check));
+        check[i] = 123.;
+
+        vec v(in);
+        v[i] = 123.;
+        v.copy_to(out);
+
+        EXPECT_PRED2(sequence_equal, check, out);
+
+        (v[i] = 234) = 345;
+        v.copy_to(out);
+        check[i] = 345.;
+
+        EXPECT_PRED2(sequence_equal, check, out);
+    }
+}
+
+REGISTER_TYPED_TEST_SUITE_P(tinysimd_basic, copy_and_assign, arithmetic, element);
 
 typedef ::testing::Types<
     tinysimd::simd<double, 4, tinysimd::abi::avx2>,

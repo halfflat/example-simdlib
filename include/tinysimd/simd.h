@@ -1,5 +1,7 @@
 #pragma once
 
+#include <type_traits>
+
 #include <tinysimd/avx2.h>
 #include <tinysimd/common.h>
 #include <tinysimd/generic.h>
@@ -74,7 +76,7 @@ public:
     simd_wrap() = default;
     simd_wrap(const simd_wrap& other) = default;
 
-    simd_wrap(const scalar_type& x):
+    simd_wrap(scalar_type x):
         value_(I::broadcast(x)) {}
 
     simd_wrap(const scalar_type (&a)[width]):
@@ -84,11 +86,11 @@ public:
         value_(I::copy_from(p)) {}
 
     template <typename J>
-    simd_wrap(const indirect_expression<J, const scalar_type>& pi):
+    simd_wrap(indirect_expression<J, const scalar_type> pi):
         value_(I::gather(tag<J>{}, pi.p, pi.index, pi.c)) {}
 
     template <typename J>
-    simd_wrap(const indirect_expression<J, scalar_type>& pi):
+    simd_wrap(indirect_expression<J, scalar_type> pi):
         value_(I::gather(tag<J>{}, pi.p, pi.index, pi.c)) {}
 
     simd_wrap& operator=(const simd_wrap& other) = default;
@@ -101,7 +103,7 @@ public:
     }
 
     template <typename J>
-    void copy_to(const indirect_expression<J, scalar_type>& pi) const {
+    void copy_to(indirect_expression<J, scalar_type> pi) const {
         I::scatter(tag<J>{}, value_, pi.p, pi.index, pi.c);
     }
 
@@ -134,7 +136,11 @@ public:
     struct element_proxy {
         vector_type* vptr;
         int i;
-        element_proxy operator=(scalar_type x) && { I::set_element(*vptr, i, x); return *this; }
+
+        element_proxy operator=(scalar_type x) {
+            I::set_element(*vptr, i, x);
+            return *this;
+        }
         operator scalar_type() const { return I::element(*vptr, i); }
     };
 
@@ -151,9 +157,9 @@ public:
         I::scatter_reduce_add(tag<J>{}, value_, pi.p, pi.index, pi.c);
     }
 
-    template <typename PtrLike>
-    friend auto indirect(PtrLike p, const simd_wrap& index, constraint c = constraint::none) {
-        using V = std::remove_reference_t<decltype(*std::declval<PtrLike>())>;
+    template <typename Ptr, typename = std::enable_if_t<std::is_pointer<Ptr>::value>>
+    friend auto indirect(Ptr p, const simd_wrap& index, constraint c = constraint::none) {
+        using V = std::remove_reference_t<decltype(*p)>;
         return indirect_expression<I, V>(p, index.value_, c);
     }
 
